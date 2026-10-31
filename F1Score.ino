@@ -11,6 +11,9 @@
 // 依赖：GFX_Library_for_Arduino（微雪 1.6.4）、SensorLib、ArduinoJson 7.x
 //       + 同目录 logos.h（队标位图）
 // 烧录：Partition Scheme 必须选 "Huge APP (3MB)"（队标位图占用约 1MB）
+//
+// 项目主页 / 源码：https://github.com/charkyue/F1-Score-Badge
+// 版本：v1.02 正式版
 // ============================================================================
 
 #include <Arduino.h>
