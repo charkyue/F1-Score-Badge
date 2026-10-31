@@ -1,0 +1,7 @@
+# 生成产物（用 python3 gen_logos_official.py / gen_fonts.py 重新生成）
+logos.h
+fonts_custom.h
+logos_src/
+logo_official_preview.png
+__pycache__/
+.DS_Store

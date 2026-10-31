@@ -10,13 +10,17 @@
 - 首次开机或连不上 WiFi 自动进入配网模式（手机连 `F1-SCORE-SETUP`，浏览器打开 192.168.4.1）
 - 数据 30 分钟自动更新；抓取失败每 5 分钟自动重试（"Update failed" 属正常现象，稍后会自动恢复）
 
-## 文件说明（三个文件必须在同一文件夹）
+## 克隆后生成资源文件
 
-| 文件 | 作用 |
-|---|---|
-| `F1Score.ino` | 主程序 |
-| `logos.h` | 11 支车队官方队标 + F1 标志（240×240 RGB565 位图，约 5MB） |
-| `fonts_custom.h` | DejaVu Sans Bold 实体字体（26/18/15/40px 四档） |
+`logos.h`（约 5MB 队标位图）和 `fonts_custom.h`（实体字体）是生成产物，不入库。克隆后运行：
+
+```bash
+pip install pillow matplotlib   # matplotlib 只用于取 DejaVuSans-Bold.ttf，可改用系统字体
+python3 gen_logos_official.py   # 自动下载队标并生成 logos.h（需要联网）
+python3 gen_fonts.py            # 生成 fonts_custom.h
+```
+
+生成完成后，把 `F1Score.ino`、`logos.h`、`fonts_custom.h` 放在同一文件夹，用 Arduino IDE 打开即可。
 
 ## Arduino IDE 编译设置（缺一不可）
 
@@ -27,7 +31,7 @@
 
 ## 依赖库
 
-- GFX Library for Arduino（微雪版 1.6.4，或官方 1.6.9 也可，程序已兼容）
+- GFX Library for Arduino（1.6.4/1.6.9 均可，程序已兼容）
 - SensorLib（触摸）
 - ArduinoJson 7.x
 
@@ -42,6 +46,12 @@
 | 点击详情页任意处 | 返回车手卡片 |
 | 点击左下图标 | 立即刷新数据 |
 | 点击右下齿轮 | 重新进入 WiFi 配网 |
+
+## 实现要点
+
+- **整帧合成 + 一次 DMA 推送**：所有内容先画进 PSRAM 帧缓冲（466×466×2B），最后用 `draw16bitRGBBitmap` 一次推送，规避 CO5300 + GFX 库小事务/混合事务的兼容问题，滑动刷新更快
+- **自定义 GFXfont 渲染**：字体直接按 GFXglyph 结构写入帧缓冲，不走库 `print()` 路径
+- **圆屏适配**：全部文字坐标按 466px 圆盘弦宽计算，保证不出显示区
 
 ## 排障速查
 

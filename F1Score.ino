@@ -278,70 +278,8 @@ static void fbTriangle(int16_t x0, int16_t y0, int16_t x1, int16_t y1,
     }
   }
 }
-// ---------------- PWR 键锁屏/亮屏（GPIO3，开机自动识别按下电平） ----------------
-#define PWR_BUTTON_PIN   3
-static bool     screenLocked = false;
-static uint8_t  btnReleasedLevel = 0;
-static uint8_t  btnLastRaw = 0xFF;
-static uint32_t btnChangedAt = 0;
-static bool     btnPressHandled = false;
-
 static void flushFB() {
-  if (screenLocked) return;   // 锁屏时只更新内存帧，不上屏
   gfx->draw16bitRGBBitmap(0, 0, fb, LCD_WIDTH, LCD_HEIGHT);
-}
-
-// 圆形屏幕边缘的圆弧色带（替代原来的上下直条）：环带 [222,233] ∩ ±45° 锥
-static void fbEdgeArc(bool top, uint16_t color) {
-  const int16_t cx = LCD_WIDTH / 2, cy = LCD_HEIGHT / 2;
-  const int32_t ro2 = 233L * 233, ri2 = 222L * 222;
-  int16_t y0 = top ? 0 : cy + 1;
-  int16_t y1 = top ? cy : LCD_HEIGHT;
-  for (int16_t y = y0; y < y1; y++) {
-    int32_t dy = y - cy;
-    for (int16_t x = 0; x < LCD_WIDTH; x++) {
-      int32_t dx = x - cx;
-      int32_t r2 = dx * dx + dy * dy;
-      if (r2 < ri2 || r2 > ro2) continue;
-      if ((dx < 0 ? -dx : dx) > (dy < 0 ? -dy : dy)) continue;  // 限制 ±45°
-      fbPixel(x, y, color);
-    }
-  }
-}
-
-// ---------------- PWR 键锁屏/亮屏 ----------------
-static void toggleLock() {
-  screenLocked = !screenLocked;
-  if (screenLocked) {
-    gfx->displayOff();
-    Serial.println("screen locked");
-  } else {
-    gfx->displayOn();            // 快速唤醒，不走完整初始化
-    gfx->setBrightness(128);
-    Serial.println("screen unlocked");
-    if (mode == MODE_SETUP)       drawSetupScreen();
-    else if (mode == MODE_DETAIL) drawDetail();
-    else if (hasData)             drawCard();
-    else                          drawMessage("F1 SCORE BOARD", "Updating...", nullptr);
-  }
-}
-static void pollPowerButton() {
-  uint8_t raw = digitalRead(PWR_BUTTON_PIN) ? 1 : 0;
-  uint32_t now = millis();
-  if (raw != btnLastRaw) {          // 电平变化，重新消抖计时
-    btnLastRaw = raw;
-    btnChangedAt = now;
-    return;
-  }
-  if (now - btnChangedAt < 40) return;      // 消抖 40ms
-  if (raw == btnReleasedLevel) {            // 稳定处于释放电平
-    btnPressHandled = false;
-    return;
-  }
-  if (!btnPressHandled) {                   // 稳定处于按下电平：一次按下只触发一次
-    btnPressHandled = true;
-    toggleLock();
-  }
 }
 
 // ============================================================================
@@ -353,18 +291,17 @@ static void drawWatermark(const char *team) {
            logo, LOGO_SIZE, LOGO_SIZE);
 }
 
-// 底部两个操作图标（加大版，y=400，避开圆边便于触摸）
+// 右上角齿轮 / 左上角刷新 小图标（y≈430）
 static void drawGearIcon(int16_t cx, int16_t cy, uint16_t color) {
-  fbDisc(cx, cy, 8, color);
+  fbDisc(cx, cy, 6, color);
   for (int k = 0; k < 8; k++) {
     float a = k * PI / 4.0f;
-    fbDisc(cx + (int16_t)(cosf(a) * 15), cy + (int16_t)(sinf(a) * 15), 3, color);
+    fbDisc(cx + (int16_t)(cosf(a) * 10), cy + (int16_t)(sinf(a) * 10), 2, color);
   }
 }
 static void drawRefreshIcon(int16_t cx, int16_t cy, uint16_t color) {
-  fbCircle(cx, cy, 13, color);
-  fbCircle(cx, cy, 12, color);
-  fbTriangle(cx + 4, cy - 20, cx + 19, cy - 11, cx + 1, cy - 7, color);
+  fbCircle(cx, cy, 9, color);
+  fbTriangle(cx + 3, cy - 14, cx + 13, cy - 8, cx + 1, cy - 5, color);
 }
 
 static void drawMessage(const char *line1, const char *line2, const char *line3) {
@@ -382,19 +319,19 @@ static void drawCard() {
 
   fbClear();
 
-  // 车队色圆弧（贴圆屏边缘，替代原来的直条）
-  fbEdgeArc(true, d.color);
-  fbEdgeArc(false, d.color);
+  // 顶部/底部车队色带（圆屏自然裁切成弧形）
+  fbFillRect(0, 0, LCD_WIDTH, 16, d.color);
+  fbFillRect(0, LCD_HEIGHT - 16, LCD_WIDTH, 16, d.color);
 
   // 队标水印（衬在文字下层）
   drawWatermark(d.team);
 
-  // 名次（左上）+ 年度总积分（右上）——内移避开圆弧两端
+  // 名次（左上）+ 年度总积分（右上）——基线 y=78，圆屏 y62..83 弦宽内
   snprintf(buf, sizeof(buf), "P%d", d.position);
-  drawTextF(&FONT_MID, buf, 108, 78, RGB565_WHITE);
+  drawTextF(&FONT_MID, buf, 80, 78, RGB565_WHITE);
   fmtPoints(buf, sizeof(buf), d.points);
   char pts[32]; snprintf(pts, sizeof(pts), "%s PTS", buf);
-  drawRightF(&FONT_MID, pts, 360, 78, d.color);
+  drawRightF(&FONT_MID, pts, 386, 78, d.color);
 
   // 车手姓名（基线 140，字形 123..147，完全在圆盘内；点击热区 y80..155 不变）
   drawCenteredF(&FONT_NAME, d.name, 140, RGB565_WHITE);
@@ -415,23 +352,23 @@ static void drawCard() {
   if (d.lastPoints >= 0) {
     fmtPoints(buf, sizeof(buf), d.lastPoints);
     char plus[20]; snprintf(plus, sizeof(plus), "+%s", buf);
-    drawCenteredF(&FONT_NUM, plus, 340, d.color);
+    drawCenteredF(&FONT_NUM, plus, 348, d.color);
     snprintf(buf, sizeof(buf), "Finished P%d", d.lastPos);
-    drawCenteredF(&FONT_TEAM, buf, 372, RGB565_DARKGREY);
+    drawCenteredF(&FONT_TEAM, buf, 382, RGB565_DARKGREY);
   } else {
-    drawCenteredF(&FONT_NUM, "--", 340, RGB565_DARKGREY);
-    drawCenteredF(&FONT_TEAM, "No result in this race", 372, RGB565_DARKGREY);
+    drawCenteredF(&FONT_NUM, "--", 348, RGB565_DARKGREY);
+    drawCenteredF(&FONT_TEAM, "No result in this race", 382, RGB565_DARKGREY);
   }
 
-  // 页面指示点（23 点，y=396，与图标错开）
+  // 页面指示点（23 点总宽 230，限制在 y=404 弦宽内）
   for (int i = 0; i < driverCount; i++) {
     int16_t px = LCD_WIDTH / 2 - driverCount * 5 + i * 10;
-    fbDisc(px, 396, 3, i == currentIdx ? d.color : RGB565_DARKGREY);
+    fbDisc(px, 404, 3, i == currentIdx ? d.color : RGB565_DARKGREY);
   }
 
-  // 两个操作图标：左下 8 点钟方向刷新 / 右下 4 点钟方向配网（避开中央进度点）
-  drawRefreshIcon(72, 326, RGB565_LIGHTGREY);
-  drawGearIcon(394, 326, RGB565_LIGHTGREY);
+  // 底部两个操作图标：左刷新 / 右配网（y=430，x 限制在弦宽 109..357 内）
+  drawRefreshIcon(120, 430, RGB565_LIGHTGREY);
+  drawGearIcon(346, 430, RGB565_LIGHTGREY);
 
   flushFB();
 }
@@ -442,8 +379,8 @@ static void drawDetail() {
   char buf[32];
 
   fbClear();
-  fbEdgeArc(true, d.color);
-  fbEdgeArc(false, d.color);
+  fbFillRect(0, 0, LCD_WIDTH, 16, d.color);
+  fbFillRect(0, LCD_HEIGHT - 16, LCD_WIDTH, 16, d.color);
 
   drawWatermark(d.team);
 
@@ -660,13 +597,9 @@ static void enterSetupMode() {
   });
   server.begin();
 
-  drawSetupScreen();
-}
-
-static void drawSetupScreen() {
   fbClear();
-  fbEdgeArc(true, 0x07E0);
-  fbEdgeArc(false, 0x07E0);
+  fbFillRect(0, 0, LCD_WIDTH, 16, 0x07E0);
+  fbFillRect(0, LCD_HEIGHT - 16, LCD_WIDTH, 16, 0x07E0);
   drawCenteredF(&FONT_MID,  "WIFI SETUP", 120, RGB565_WHITE);
   drawCenteredF(&FONT_TEAM, "1. Connect your phone to:", 176, RGB565_LIGHTGREY);
   drawCenteredF(&FONT_MID,  AP_SSID, 210, 0x07E0);
@@ -681,7 +614,6 @@ static void drawSetupScreen() {
 // ============================================================================
 static int readGesture() {
   uint8_t n = touch.getPoint(touchX, touchY, 1);
-  if (n > 0) touchY[0] = LCD_HEIGHT - 1 - touchY[0];   // 触摸 Y 轴与显示相反
   if (n > 0) {
     if (!touchDown) {
       touchDown = true;
@@ -712,8 +644,8 @@ static void handleTap(int16_t x, int16_t y) {
   }
   if (mode != MODE_CARD) return;
 
-  if (x > 330 && y > 285 && y < 380) { enterSetupMode(); return; }   // 齿轮（4 点钟）
-  if (x < 136 && y > 285 && y < 380) { fetchData(); return; }        // 刷新（8 点钟）
+  if (x > 296 && y > 390) { enterSetupMode(); return; }   // 齿轮
+  if (x < 170 && y > 390) { fetchData(); return; }        // 刷新
   if (y > 80 && y < 155)  { mode = MODE_DETAIL; drawDetail(); }  // 姓名热区
 }
 
@@ -723,13 +655,6 @@ static void handleTap(int16_t x, int16_t y) {
 void setup() {
   Serial.begin(115200);
   delay(200);
-
-  // PWR 键（GPIO3）：采样释放电平，用于锁屏/亮屏
-  pinMode(PWR_BUTTON_PIN, INPUT);
-  delay(50);
-  btnReleasedLevel = digitalRead(PWR_BUTTON_PIN) ? 1 : 0;
-  btnLastRaw = btnReleasedLevel;
-  Serial.printf("PWR button released level = %d\n", btnReleasedLevel);
 
   Wire.begin(IIC_SDA, IIC_SCL);
 
@@ -771,15 +696,8 @@ void setup() {
 }
 
 void loop() {
-  pollPowerButton();                 // 锁屏/亮屏随时响应（含配网模式）
-
   if (mode == MODE_SETUP) {
     server.handleClient();
-    delay(10);
-    return;
-  }
-
-  if (screenLocked) {                // 锁屏：忽略触摸与定时刷新显示
     delay(10);
     return;
   }
